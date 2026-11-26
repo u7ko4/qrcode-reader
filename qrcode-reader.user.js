@@ -150,7 +150,7 @@
       border: 0 !important;
       border-radius: 6px !important;
       background-color: rgba(0, 0, 0, .55) !important;
-      box-shadow: 0 0 0 1px rgba(255, 255, 255, .4), 0 2px 6px rgba(0, 0, 0, .35) !important;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, .35) !important;
       color: #fff !important;
       opacity: .75 !important;
       cursor: pointer !important;
