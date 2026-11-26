@@ -148,7 +148,7 @@ const startup = async () => {
     parentId: 'options'
   });
   chrome.contextMenus.create({
-    title: 'Open with QR Code Reader',
+    title: 'Scan this Image',
     id: 'open-with',
     contexts: ['image'],
     visible: prefs['show-on-image']
@@ -168,14 +168,48 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     }, () => chrome.runtime.reload());
   }
   else if (info.menuItemId === 'open-with') {
-    if (info.srcUrl.startsWith('http')) {
+    // ask for the origins that are required to inject the panel and to read the image
+    const origins = [];
+    for (const url of [info.srcUrl, tab.url]) {
+      try {
+        const {origin, protocol} = new URL(url);
+        if (protocol === 'http:' || protocol === 'https:') {
+          origins.push(origin + '/*');
+        }
+      }
+      catch (e) {}
+    }
+    if (origins.length) {
       await chrome.permissions.request({
-        origins: [info.srcUrl]
+        origins: [...new Set(origins)]
       }).catch(() => {});
     }
-    onCommand(tab, {
-      href: info.srcUrl
-    });
+
+    try {
+      const target = {
+        tabId: tab.id
+      };
+      if (Number.isInteger(info.frameId)) {
+        target.frameIds = [info.frameId];
+      }
+      await chrome.scripting.executeScript({
+        target,
+        files: ['data/inline/inject.js']
+      });
+      await chrome.tabs.sendMessage(tab.id, {
+        method: 'inline-scan',
+        href: info.srcUrl
+      }, Number.isInteger(info.frameId) ? {
+        frameId: info.frameId
+      } : {});
+    }
+    catch (e) {
+      // some pages do not allow injection; fall back to the regular window
+      console.warn('QR Code Reader: inline scan is not available', e);
+      onCommand(tab, {
+        href: info.srcUrl
+      });
+    }
   }
   else if (info.menuItemId === 'open-links-windows') {
     chrome.storage.local.set({
@@ -245,6 +279,43 @@ chrome.runtime.onMessage.addListener((request, sender, response) => {
   }
   else if (request.method === 'args') {
     response(onCommand.args || {});
+  }
+  else if (request.method === 'open-url') {
+    chrome.storage.local.get({
+      'open-links-windows': false
+    }, prefs => {
+      if (prefs['open-links-windows']) {
+        chrome.windows.create({
+          url: request.url
+        });
+      }
+      else {
+        chrome.tabs.create({
+          url: request.url
+        });
+      }
+    });
+  }
+  else if (request.method === 'save-results' && request.list) {
+    chrome.storage.local.get({
+      'save': true,
+      'max': 100,
+      'history': []
+    }, prefs => {
+      if (prefs.save === false) {
+        return;
+      }
+      for (const e of request.list) {
+        prefs.history = prefs.history.filter(o => o.data !== e.data);
+        prefs.history.unshift({
+          data: e.data,
+          symbol: e.symbol
+        });
+      }
+      chrome.storage.local.set({
+        history: prefs.history.slice(0, prefs.max)
+      });
+    });
   }
 });
 
